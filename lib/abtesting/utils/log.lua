@@ -9,10 +9,16 @@ local _M = {}
 local mt = {__index = _M}
 _M._VERSION = "0.01"
 
+--[[
+日志模块
+    简单的向nginx进行输出
+]]--
+
 _M.new = function (self, hostname)
 	self.tag = hostname
 	return setmetatable(self, mt)
 end
+
 
 function _M.info(self, ...)
     log(INFO, "ab_div host [", self.tag or 'ab_admin',"] ", ...)
