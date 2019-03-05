@@ -1,4 +1,7 @@
 local modulename = "abtestingUtils"
+--[[
+    实用的字符串操作
+]]--
 local _M = {}
 _M._VERSION = '0.0.1'
 
@@ -18,24 +21,25 @@ handler———errinfo————errcode————code
     |———errstack				 
 ]]--		
 
+--- 构建日志信息
+--- @return string
 _M.dolog = function(info, desc, data, errstack)
---    local errlog = 'ab_admin '
     local errlog = ''
     local code, err = info[1], info[2]
     local errcode = code
     local errinfo = desc and err..desc or err 
     
-    errlog = errlog .. 'code : '..errcode
-    errlog = errlog .. ', desc : '..errinfo
     if data then
-        errlog = errlog .. ', extrainfo : '..data
+        return errlog..'code : '..errcode..', desc : '..errinfo..', extrainfo : '..data
     end
     if errstack then
-        errlog = errlog .. ', errstack : '..errstack
+        return errlog..'code : '..errcode..', desc : '..errinfo..', errstack : '..errstack
     end
 	return errlog
 end
 
+--- 构建响应信息
+--- @return string
 _M.doresp = function(info, desc, data)
     local response = {}
     
@@ -46,10 +50,12 @@ _M.doresp = function(info, desc, data)
     if data then 
         response.data = data 
     end
-    
     return cjson.encode(response)
 end
 
+
+--- 构建错误响应信息，记入日志
+--- @return string 响应信息
 _M.doerror = function(info, extrainfo)
     local errinfo   = info[1]
     local errstack  = info[2] 
