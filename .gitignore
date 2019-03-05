@@ -15,3 +15,5 @@ t/servroot/
 stdout
 
 *.log
+.idea
+.vscode
