@@ -1,4 +1,7 @@
 local modulename = 'abtestingErrorInfo'
+--[[
+    错误码定义
+]]--
 local _M = {}
 
 _M._VERSION = '0.0.1'

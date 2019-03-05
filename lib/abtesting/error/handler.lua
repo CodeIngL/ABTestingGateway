@@ -1,5 +1,7 @@
 local modulename = 'abtestingErrorHandler'
-
+--[[
+	错误的处理逻辑，返回错误表，栈信息
+]]--
 local _M = { _VERSION = '0.01' }
 
 local ERRORINFO = require('abtesting.error.errcode').info
