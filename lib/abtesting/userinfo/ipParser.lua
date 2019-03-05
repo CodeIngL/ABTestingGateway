@@ -1,10 +1,14 @@
-
+--[[
+	基于ip来表征用户
+]]--
 local _M = {
     _VERSION = '0.01'
 }
 
 local ffi = require("ffi")
-
+--[[
+	c库代码
+]]--
 ffi.cdef[[
 struct in_addr {
     uint32_t s_addr;
@@ -19,6 +23,9 @@ uint32_t htonl(uint32_t hostlong);
 
 local C = ffi.C
 
+---
+--- ip转换
+--- @return number or nil
 local ip2long = function(ip)
     local inp = ffi.new("struct in_addr[1]")
     if C.inet_aton(ip, inp) ~= 0 then
@@ -27,6 +34,9 @@ local ip2long = function(ip)
     return nil
 end
 
+---
+--- ip转换
+--- @return string or nil
 local long2ip = function(long)
     if type(long) ~= "number" then
         return nil
@@ -37,7 +47,9 @@ local long2ip = function(long)
 end
 
 
-
+---
+--- 基于ip的解析，http头部中提取
+--- @return string or nil
 _M.get = function()
     local ClientIP = ngx.req.get_headers()["X-Real-IP"]
     if ClientIP == nil then
