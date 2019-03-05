@@ -1,9 +1,15 @@
 local modulename = "abtestingRedis"
+--[[
+    简单redis模块，
+        对restry.redis的高层次封装
+        使用连接池
+]]--
 local _M = {}
 
 _M._VERSION = '0.0.1'
 
 local redis = require('resty.redis')
+
 
 _M.new = function(self, conf)
     self.host       = conf.host
@@ -18,6 +24,8 @@ _M.new = function(self, conf)
     return setmetatable({redis = red}, { __index = _M } )
 end
 
+--- 连接数据库
+--- @return {ok,err}
 _M.connectdb = function(self)
 
     local uds   = self.uds
@@ -51,6 +59,8 @@ _M.connectdb = function(self)
     return ok, err
 end
 
+--- keepalive
+--- @return
 _M.keepalivedb = function(self)
     local   pool_max_idle_time  = self.idletime --毫秒
     local   pool_size           = self.poolsize --连接池大小
