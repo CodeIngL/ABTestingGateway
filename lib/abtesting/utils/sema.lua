@@ -1,4 +1,7 @@
 local modulename = "abtestingSema"
+--[[
+    信号量
+]]--
 local _M = {}
 
 local semaphore = require("lua-resty-core.lib.ngx.semaphore")
