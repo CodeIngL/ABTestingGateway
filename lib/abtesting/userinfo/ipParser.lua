@@ -14,6 +14,8 @@ struct in_addr {
     uint32_t s_addr;
 };
 
+int inet_pton(int af, const char *src, void *dst);
+
 int inet_aton(const char *cp, struct in_addr *inp);
 uint32_t ntohl(uint32_t netlong);
 

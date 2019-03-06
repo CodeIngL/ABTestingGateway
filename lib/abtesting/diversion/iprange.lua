@@ -1,5 +1,7 @@
 local modulename = "abtestingDiversionIprange"
-
+--[[
+    基于ip的范围的分流
+]]--
 local _M    = {}
 local mt    = { __index = _M }
 _M._VERSION = "0.0.1"
@@ -7,25 +9,30 @@ _M._VERSION = "0.0.1"
 local ERRORINFO	= require('abtesting.error.errcode').info
 
 local offset    = 0.3
-local k_start   = 'start'
-local k_end     = 'end'
 local k_range   = 'range'
 local k_upstream= 'upstream'
-local k_index   = 'index'
 
+--- 构造对象
+--- @param	database 数据库对象
+--- @param policyLib 键前缀
 _M.new = function(self, database, policyLib)
     if not database then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable redis db'}
-    end if not policyLib then
+    end
+    if not policyLib then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable policy lib'}
     end
 
-    self.database = database
-    self.policyLib = policyLib
+    self.database = database --数据库对象
+    self.policyLib = policyLib --键前缀
     return setmetatable(self, mt)
 end
 
---	policy is in format {range = { start = 13411, end = 435435}, upstream = 'upstream1'},
+--- 校验数据policy是否是一个符合的格式
+--- 存在排序
+--- @param	policy  格式:{range = { start = 13411, end = 435435}, upstream = 'upstream1'}
+--- @return true or false
+--- @deprecated client端不再需要校验，管理端和client分开
 _M.check = function(self, policy)
     if not next(policy) then
         local info = ERRORINFO.POLICY_INVALID_ERROR
@@ -43,22 +50,16 @@ _M.check = function(self, policy)
         edip = range['end']
         
         if type(upstream) ~= 'string' then
-            local info = ERRORINFO.POLICY_INVALID_ERROR
-            local desc = 'upstream invalid'
-            return {false, info, desc}
+            return {false, ERRORINFO.POLICY_INVALID_ERROR, 'upstream invalid'}
         end
         
         if stip > edip then
-            local info = ERRORINFO.POLICY_INVALID_ERROR
-            local desc = 'range error for start < end'
-            return {false, info, desc}
+            return {false, ERRORINFO.POLICY_INVALID_ERROR, 'range error for start < end'}
         end
         
         if i > 1 then
             if stip <= last_edip then
-                local info = ERRORINFO.POLICY_INVALID_ERROR
-                local desc = 'iprange overlapped'
-                return {false, info, desc}
+                return {false, ERRORINFO.POLICY_INVALID_ERROR, 'iprange overlapped'}
             end
         end
         

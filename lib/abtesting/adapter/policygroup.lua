@@ -11,11 +11,11 @@ local policyModule  = require('abtesting.adapter.policy')
 local fields        = require('abtesting.utils.init').fields
 
 local separator = ':'
+
 ---
 -- policyIO new function
 -- @param database opened redis.
 -- @param baseLibrary a library(prefix of redis key) of policies.
--- @return runtimeInfoIO object
 _M.new = function(self, database, groupLibrary, baseLibrary)
     if not database then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable redis db'}
@@ -24,10 +24,10 @@ _M.new = function(self, database, groupLibrary, baseLibrary)
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable policy baselib'}
     end
 
-    self.database     = database
-    self.groupLibrary = groupLibrary
-    self.baseLibrary  = baseLibrary
-    self.idCountKey = table.concat({groupLibrary, fields.idCount}, separator)
+    self.database     = database -- 数据库对象
+    self.groupLibrary = groupLibrary -- 键前缀 ab:policygroups
+    self.baseLibrary  = baseLibrary -- 键前缀 ab:policies
+    self.idCountKey = table.concat({groupLibrary, fields.idCount}, separator) --id索引键 ab:policygroups:idCount
 
     local ok, err = database:exists(self.idCountKey)
     if not ok then error{ERRORINFO.REDIS_ERROR,  err} end
@@ -40,49 +40,28 @@ _M.new = function(self, database, groupLibrary, baseLibrary)
 end
 
 ---
--- get id for current policy
--- @return the id
+--- get id for current policy
+--- 获取当前策略组的ID，通过对redis键值加获得下一个seq
+--- @return the id
 _M.getIdCount = function(self)
     local database = self.database
-    local key = self.idCountKey
+    local key = self.idCountKey --id索引键 ab:policygroups:idCount
     local idCount, err = database:incr(key)
     if not idCount then error{ERRORINFO.REDIS_ERROR, err} end
-
     return idCount
 end
 
 ---
--- private function, set diversion type
--- @param id identify a policy
--- @param divtype diversion type (ipange/uid/...)
--- @return allways returned SUCCESS
-_M._setDivtype = function(self, id, divtype)
-    local database = self.database
-    local key = table.concat({self.baseLibrary, id, fields.divtype}, separator)
-    local ok, err = database:set(key, divtype)
-    if not ok then error{ERRORINFO.REDIS_ERROR, err} end
-end
-
----
--- private function, set diversion data
--- @param id identify a policy
--- @param divdata diversion data
--- @param modulename module name of diversion data (decision by diversion type)
--- @return allways returned SUCCESS
-_M._setDivdata = function(self, id, divdata, modulename)
-    local divModule = require(modulename)
-    local database = self.database
-    local key = table.concat({self.baseLibrary, id, fields.divdata}, separator)
-
-    divModule:new(database, key):set(divdata)
-end
-
+--- 向redis保存相关的策略组
+--- @param policyGroup 策略组
+--- @return allways returned SUCCESS
 _M.set = function(self, policyGroup)
 
     local database = self.database
-    local baseLibrary = self.baseLibrary
-    local policyMod = policyModule:new(database, baseLibrary)
+    local baseLibrary = self.baseLibrary -- 键前缀 ab:policies
 
+    -- 调用策略模块进行逐个写策略组的策略
+    local policyMod = policyModule:new(database, baseLibrary)
     local steps = #policyGroup
     local group = {}
     for idx = 1, steps do
@@ -91,9 +70,10 @@ _M.set = function(self, policyGroup)
         group[idx] = id
     end
 
-    local groupLibrary  = self.groupLibrary
+    -- 策略组本身写入信息到redis中
+    local groupLibrary  = self.groupLibrary -- 键前缀 ab:policygroups
     local groupid       = self:getIdCount()
-    local groupKey      = table.concat({groupLibrary, groupid}, separator)
+    local groupKey      = table.concat({groupLibrary, groupid}, separator) -- 键前缀 ab:policygroups:${groupid}
     database:init_pipeline()
     for idx = 1, steps do
         database:rpush(groupKey, group[idx])
@@ -104,12 +84,15 @@ _M.set = function(self, policyGroup)
     local ret = {}
     ret.groupid = groupid
     ret.group = group
-
+    -- 返回策略组的id，和其内部的策略各个id
     return ret
 end
 
+---
+--- 根据策略组数据定位相应的策略模块进行检查
+--- @param policy 策略组数据
+--- @return allways returned SUCCESS
 _M.check = function(self, policyGroup)
-
     local steps = #policyGroup
     local policyMod = policyModule:new(self.database, self.baseLibrary)
     for idx = 1, steps do
@@ -119,26 +102,23 @@ _M.check = function(self, policyGroup)
         local info  = chkinfo[2]
         local desc  = chkinfo[3]
         if not valid then
-            local extra = 'policy NO.'..idx..' ' 
             if not desc then
-                desc = extra .. 'not valid'
+                return {valid, info, 'policy NO.'..idx..' not valid'}
             else
-                desc = extra .. desc 
+                return {valid, info, 'policy NO.'..idx..desc}
             end
-            return {valid, info, desc}
         end
     end
     return {true}
 end
 
 ---
--- delete a policy from specified redis lib
--- @param id the policy identify
--- @return allways returned SUCCESS
+--- delete a policy from specified redis lib
+--- @param id the policy identify
+--- @return allways returned SUCCESS
 _M.del = function(self, id)
     local database      = self.database
     local groupLibrary  = self.groupLibrary
-    local baseLibrary   = self.baseLibrary
 
     local groupKey      = table.concat({groupLibrary, id}, separator)
 

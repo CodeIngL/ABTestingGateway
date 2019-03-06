@@ -2,7 +2,7 @@
 -- @classmod abtesting.adapter.policy
 -- @release 0.0.1
 local modulename = "abtestingAdminRuntime"
-
+--[动作指令，运行相关]--
 local _M = { _VERSION = "0.0.1" }
 local mt = { __index = _M }
 
@@ -10,25 +10,17 @@ local ERRORINFO	= require('abtesting.error.errcode').info
 
 local runtimeModule = require('abtesting.adapter.runtime')
 local policyModule  = require('abtesting.adapter.policy')
-local redisModule   = require('abtesting.utils.redis')
 local systemConf    = require('abtesting.utils.init')
 local handler       = require('abtesting.error.handler').handler
 local utils         = require('abtesting.utils.utils')
 local log			= require('abtesting.utils.log')
-local ERRORINFO     = require('abtesting.error.errcode').info
-local cjson         = require('cjson.safe')
 
-local redisConf     = systemConf.redisConf
-local prefixConf    = systemConf.prefixConf
-local runtimeLib    = prefixConf.runtimeInfoPrefix
-local policyLib     = prefixConf.policyLibPrefix
-local domain_name   = prefixConf.domainname
+local runtimeLib    = systemConf.prefixConf.runtimeInfoPrefix
+local policyLib     = systemConf.prefixConf.policyLibPrefix
 local divtypes      = systemConf.divtypes
 local fields        = systemConf.fields
 
 local runtimeGroupModule = require('abtesting.adapter.runtimegroup')
-local policyGroupModule  = require('abtesting.adapter.policygroup')
-local policyGroupLib     = prefixConf.policyGroupPrefix
 
 
 local doresp        = utils.doresp
@@ -36,23 +28,19 @@ local dolog         = utils.dolog
 local doerror       = utils.doerror
 
 local getPolicyId = function()
-    local policyID = tonumber(ngx.var.arg_policyid)
-    return policyID
+    return tonumber(ngx.var.arg_policyid)
 end
 
 local getPolicyGroupId = function()
-    local policyGroupId = tonumber(ngx.var.arg_policygroupid)
-    return policyGroupId
+    return tonumber(ngx.var.arg_policygroupid)
 end
 
 local getHostName = function()
-    local hostname = ngx.var.arg_hostname
-    return hostname
+    return ngx.var.arg_hostname
 end
 
 local getDivSteps = function()
-    local divsteps = tonumber(ngx.var.arg_divsteps)
-    return divsteps
+    return tonumber(ngx.var.arg_divsteps)
 end
 
 _M.get = function(option)
@@ -61,11 +49,8 @@ _M.get = function(option)
 
     local hostname = getHostName()
     if not hostname or string.len(hostname) < 1 or hostname == ngx.null then
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = 'arg hostname invalid: '
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
         return nil 
     end
 
@@ -91,11 +76,8 @@ _M.del = function(option)
 
     local hostname = getHostName()
     if not hostname or string.len(hostname) < 1 or hostname == ngx.null then
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = 'arg hostname invalid: '
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
         return nil 
     end
 
@@ -105,18 +87,22 @@ _M.del = function(option)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
-
-    local response = doresp(ERRORINFO.SUCCESS)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS))
     return true
 end
 
+--- 根据请求提供的运行数据，设置新的运行时信息
+--- 可以使用策略id，也可以使用策略组id
+--- 策略id优先
+--- 策略id对应runtime，策略组id对应runtimegroup
+--- @return true or false
 _M.set = function(option)
+    --- 提取策略id
     local policyId = getPolicyId()
+    --- 提取策略组id
     local policyGroupId = getPolicyGroupId()
 
     if policyId and policyId >= 0 then
@@ -124,113 +110,102 @@ _M.set = function(option)
     elseif policyGroupId and policyGroupId >= 0 then
         _M.groupset(option, policyGroupId)
     else
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = "policyId or policyGroupid invalid"
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR , 'policyId or policyGroupid invalid'))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR , 'policyId or policyGroupid invalid'))
         return nil 
     end
 end
 
+
+--- 根据策略组id进行设置相关信息
+--- @return true or false
 _M.groupset = function(option, policyGroupId)
     local db = option.db
     local database = db.redis
 
-    local hostname = getHostName()
-    local divsteps = getDivSteps()
+    local hostname = getHostName() --host参数
+    local divsteps = getDivSteps() --分级层次
 
+    --校验hostname
     if not hostname or string.len(hostname) < 1 or hostname == ngx.null then
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = 'arg hostname invalid: '
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR , 'arg hostname invalid: '))
         return nil 
     end
 
+    --应用策略后，先尝试删除hostname下的相关的策略组策略，并直接更新的的策略组策略
     local pfunc = function()
         local runtimeGroupMod = runtimeGroupModule:new(database, runtimeLib)
-        runtimeGroupMod:del(hostname)
+        runtimeGroupMod:del(hostname) --键前缀  ab:runtimeInfo:${hostname}
         return runtimeGroupMod:set(hostname, policyGroupId, divsteps)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
-
-    local response = doresp(ERRORINFO.SUCCESS)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS))
     return true
 
 end
 
+
+--- 根据策略id进行设置相关信息
+--- @return true or false
 _M.runtimeset = function(option, policyId)
     local db = option.db
     local database = db.redis
 
     local hostname = getHostName()
-    local divsteps = 1
 
+    --校验hostname
     if not hostname or string.len(hostname) < 1 or hostname == ngx.null then
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = 'arg hostname invalid: '
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
-        return nil 
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR, 'arg hostname invalid: '))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR, 'arg hostname invalid: '))
+        return nil
     end
 
+    --应用策略后，先尝试删除hostname下的相关的策略组策略
     local pfunc = function()
-        local runtimeGroupMod = runtimeGroupModule:new(database, runtimeLib)
-        return runtimeGroupMod:del(hostname)
+        return runtimeGroupModule:new(database, runtimeLib):del(hostname) --键前缀  ab:runtimeInfo:${hostname}
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
 
+    --获得内存中的策略信息
     local pfunc = function()
-        local policyMod = policyModule:new(database, policyLib)
-        local policy = policyMod:get(policyId)
+        local policy = policyModule:new(database, policyLib):get(policyId) --键前缀  ab:policies:${policyId}
 
-        local divtype = policy.divtype
-        local divdata = policy.divdata
+        local divtype = policy.divtype --策略类型
+        local divdata = policy.divdata --策略内容
 
         if divtype == ngx.null or divdata == ngx.null then
             error{ERRORINFO.POLICY_BLANK_ERROR, 'policy NO '..policyId}
         end
 
-        if not divtypes[divtype] then
+        local divModulename      = table.concat({'abtesting.diversion', divtype}, '.') --对应的策略模块名字
+        local divDataKey         = table.concat({policyLib, policyId, fields.divdata}, ':') --对应的策略内容键
+        local userInfoModulename = table.concat({'abtesting.userinfo', divtypes[divtype]}, '.') --对应的用户模块名字
+        --为专属的hostname构建三要素，这个是单级分流，因为是单个策略
+        runtimeModule:new(database, runtimeLib..':'..hostname):set(':first', divModulename, divDataKey, userInfoModulename) --键前缀  ab:runtimeInfo:${hostname}:first
 
-        end
-
-        local prefix             = hostname .. ':first'
-        local divModulename      = table.concat({'abtesting', 'diversion', divtype}, '.')
-        local divDataKey         = table.concat({policyLib, policyId, fields.divdata}, ':')
-        local userInfoModulename = table.concat({'abtesting', 'userinfo', divtypes[divtype]}, '.')
-        local runtimeMod         = runtimeModule:new(database, runtimeLib) 
-        runtimeMod:set(prefix, divModulename, divDataKey, userInfoModulename)
-
-        local divSteps           = runtimeLib .. ':' .. hostname .. ':' .. fields.divsteps
+        --设置分流等级，单级分流
+        local divSteps           = runtimeLib..':'..hostname .. ':' .. fields.divsteps
         local ok, err = database:set(divSteps, 1)
         if not ok then error{ERRORINFO.REDIS_ERROR, err} end
     end
 
+    -- 执行
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
 
-
-    local response = doresp(ERRORINFO.SUCCESS)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS))
     return true
 end
 

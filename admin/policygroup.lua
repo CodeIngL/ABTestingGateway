@@ -2,74 +2,75 @@
 -- @classmod abtesting.adapter.policy
 -- @release 0.0.1
 local modulename = "abtestingAdminPolicyGroup"
-
+--[动作指令，策略组相关]--
 local _M = { _VERSION = "0.0.1" }
 local mt = { __index = _M }
 
 local ERRORINFO	= require('abtesting.error.errcode').info
 
-local runtimeModule = require('abtesting.adapter.runtime')
-local policyModule  = require('abtesting.adapter.policy')
-local redisModule   = require('abtesting.utils.redis')
 local systemConf    = require('abtesting.utils.init')
 local handler       = require('abtesting.error.handler').handler
 local utils         = require('abtesting.utils.utils')
 local log			= require('abtesting.utils.log')
-local ERRORINFO     = require('abtesting.error.errcode').info
 
 local cjson         = require('cjson.safe')
 local doresp        = utils.doresp
 local dolog         = utils.dolog
 local doerror       = utils.doerror
 
-local redisConf     = systemConf.redisConf
 local divtypes      = systemConf.divtypes
-local prefixConf    = systemConf.prefixConf
-local policyLib     = prefixConf.policyLibPrefix
-local runtimeLib    = prefixConf.runtimeInfoPrefix
-local domain_name   = prefixConf.domainname
+local policyLib     = systemConf.prefixConf.policyLibPrefix
 
 local policyGroupModule  = require('abtesting.adapter.policygroup')
-local policyGroupLib     = prefixConf.policyGroupPrefix
+local policyGroupLib     = systemConf.prefixConf.policyGroupPrefix
 
+--- 根据请求获得策略组id
+--- 读取nginx内置的变量
+--- @return 策略id
 local getPolicyGroupId = function()
     local policyGroupId      = tonumber(ngx.var.arg_policygroupid)
     if not policyGroupId or policyGroupId < 0 then
-        local info = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc = "policyGroupId invalid"
-        local response = doresp(info, desc)
-        log:errlog(dolog(info, desc))
-        ngx.say(response)
+        log:errlog(dolog( ERRORINFO.PARAMETER_TYPE_ERROR, 'policyGroupId invalid'))
+        ngx.say(doresp( ERRORINFO.PARAMETER_TYPE_ERROR, 'policyGroupId invalid'))
         return nil 
     end
     return policyGroupId
 end
 
+--- 根据请求获得策略组数据
+--- {
+---    "1": {
+---        "divtype": "uidappoint",
+---        "divdata": [
+---            {"uidset": [1234,5124,653],"upstream": "beta1"},
+---            {"uidset": [3214,652,145],"upstream": "beta2"}]},
+---    "2": {
+---        "divtype": "iprange",
+---        "divdata": [{"range": {"start": 1111,"end": 2222},"upstream": "beta1"},
+---            {"range": {"start": 3333,"end": 4444},"upstream": "beta2"},
+---            {"range": {"start": 7777,"end": 8888},"upstream": "beta3"}]}
+---}
+--- @return 策略组数据
 local getPolicyGroup = function()
 
     local request_body  = ngx.var.request_body
     local postData      = cjson.decode(request_body)
 
+    -- 请求body的校验
     if not request_body then
-        -- ERRORCODE.PARAMETER_NONE
-        local errinfo   = ERRORINFO.PARAMETER_NONE
-        local desc      = 'request_body or post data'
-        local response  = doresp(errinfo, desc)
-        log:errlog(dolog(errinfo, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_NONE, 'request_body or post data'))
+        ngx.say(doresp(ERRORINFO.PARAMETER_NONE, 'request_body or post data'))
         return nil
     end
 
+    -- body的json校验
     if not postData then
-        -- ERRORCODE.PARAMETER_ERROR
-        local errinfo   = ERRORINFO.PARAMETER_ERROR 
-        local desc      = 'postData is not a json string'
-        local response  = doresp(errinfo, desc)
-        log:errlog(dolog(errinfo, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_ERROR , 'postData is not a json string'))
+        ngx.say(doresp(ERRORINFO.PARAMETER_ERROR , 'postData is not a json string'))
         return nil
     end
 
+    -- 策略组包含策略数量
     local policy_cnt = 0
     local policyGroup = {}
     for k, v in pairs(postData) do
@@ -77,11 +78,8 @@ local getPolicyGroup = function()
 
         local idx = tonumber(k)
         if not idx or type(v) ~= 'table' then
-            local errinfo   = ERRORINFO.PARAMETER_ERROR 
-            local desc      = 'policyGroup error'
-            local response  = doresp(errinfo, desc)
-            log:errlog(dolog(errinfo, desc))
-            ngx.say(response)
+            log:errlog(dolog(ERRORINFO.PARAMETER_ERROR, 'policyGroup error'))
+            ngx.say(doresp(ERRORINFO.PARAMETER_ERROR, 'policyGroup error'))
             return nil
         end
 
@@ -89,78 +87,66 @@ local getPolicyGroup = function()
         local divtype = policy.divtype
         local divdata = policy.divdata
 
+        -- 数据格式合法性校验
         if not divtype or not divdata then
-            -- ERRORCODE.PARAMETER_NONE
-            local errinfo   = ERRORINFO.PARAMETER_NONE 
-            local desc      = "policy divtype or policy divdata"
-            local response  = doresp(errinfo, desc)
-            log:errlog(dolog(errinfo, desc))
-            ngx.say(response)
+            log:errlog(dolog(ERRORINFO.PARAMETER_NONE, 'policy divtype or policy divdata'))
+            ngx.say(doresp(ERRORINFO.PARAMETER_NONE, 'policy divtype or policy divdata'))
             return nil
         end
 
+        -- 数据格式合法性校验，分流类型必须系统支持
         if not divtypes[divtype] then
-            -- ERRORCODE.PARAMETER_TYPE_ERROR
-            local errinfo   = ERRORINFO.PARAMETER_TYPE_ERROR 
-            local desc      = "unsupported divtype"
-            local response  = doresp(errinfo, desc)
-            log:errlog(dolog(errinfo, desc))
-            ngx.say(response)
+            log:errlog(dolog( ERRORINFO.PARAMETER_TYPE_ERROR , 'unsupported divtype'))
+            ngx.say(doresp( ERRORINFO.PARAMETER_TYPE_ERROR , 'unsupported divtype'))
             return nil
         end
 
         if policyGroup[idx] then
             --不能混淆，优先级不能重复
-            local errinfo   = ERRORINFO.PARAMETER_TYPE_ERROR 
-            local desc      = "policy in policy group should not overlap"
-            local response  = doresp(errinfo, desc)
-            log:errlog(dolog(errinfo, desc))
-            ngx.say(response)
+            log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR, 'policy in policy group should not overlap'))
+            ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR, 'policy in policy group should not overlap'))
             return nil
         end
 
         policyGroup[idx] = policy
     end
 
+    -- 合法性校验
     if policy_cnt ~= #policyGroup then
-        local errinfo   = ERRORINFO.PARAMETER_TYPE_ERROR 
-        local desc      = "index of policy in policy_group should be one by one"
-        local response  = doresp(errinfo, desc)
-        log:errlog(dolog(errinfo, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_TYPE_ERROR, 'index of policy in policy_group should be one by one'))
+        ngx.say(doresp(ERRORINFO.PARAMETER_TYPE_ERROR, 'index of policy in policy_group should be one by one'))
         return nil
     end
 
     return policyGroup
 end
 
-_M.checkPolicy = function(option)
+--- 校验策略
+--- @return true or false
+local checkPolicy = function(option)
     local db = option.db
 
+    --获得请求中的策略组数据对象
     local policyGroup = getPolicyGroup()
     if not policyGroup then
         return false
     end
 
+    -- 策略组数据项校验，非空校验
     local steps = #policyGroup
     if steps < 1 then 
-        local errinfo   = ERRORINFO.PARAMETER_NONE
-        local desc      = "blank policy group"
-        local response  = doresp(errinfo, desc)
-        log:errlog(dolog(errinfo, desc))
-        ngx.say(response)
+        log:errlog(dolog(ERRORINFO.PARAMETER_NONE, 'blank policy group'))
+        ngx.say(doresp(ERRORINFO.PARAMETER_NONE, 'blank policy group'))
         return false
     end
 
+    --委托分流策略组模块进行请求数据对应的策略进行校验
     local pfunc = function()
-        local policyGroupMod = policyGroupModule:new(db.redis,
-                                        policyGroupLib, policyLib)
-        return policyGroupMod:check(policyGroup)
+        return policyGroupModule:new(db.redis, policyGroupLib, policyLib):check(policyGroup)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
 
@@ -170,8 +156,7 @@ _M.checkPolicy = function(option)
     local desc      = chkout[3]
 
     if not valid then
-        local response = doresp(err, desc)
-        ngx.say(response)
+        ngx.say(doresp(err, desc))
         log:errlog(dolog(err, desc))
         return false
     end
@@ -179,17 +164,21 @@ _M.checkPolicy = function(option)
     return true
 end
 
+--- 校验策略
+--- @return true or false
 _M.check = function(option)
-    local status = _M.checkPolicy(option)
+    local status = checkPolicy(option)
     if not status then return end
-    local response = doresp(ERRORINFO.SUCCESS)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS))
     return true
 end
 
+--- 根据请求提供的策略组数据，设置新的分流策略
+--- 成功界面上输出策略id和策略组id
+--- @return true or false
 _M.set = function(option)
 
-    local status = _M.checkPolicy(option)
+    local status = checkPolicy(option)
     if not status then return end
 
     local db = option.db
@@ -200,23 +189,22 @@ _M.set = function(option)
     end
 
     local pfunc = function()
-        local policyGroupMod = policyGroupModule:new(db.redis,
-                                        policyGroupLib, policyLib)
+        local policyGroupMod = policyGroupModule:new(db.redis, policyGroupLib, policyLib)
         return policyGroupMod:set(policyGroup)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
 
-    local data = info
-    local response = doresp(ERRORINFO.SUCCESS, _, data)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS, _, info))
     return true
 end
 
+--- 根据请求提供的策略数据，获得对应的分流策略
+--- 关键的policyid参数和policygroupid参数
+--- @return true or false
 _M.get = function(option)
     local db = option.db
 
@@ -232,16 +220,16 @@ _M.get = function(option)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
-    local data = info
-    local response = doresp(ERRORINFO.SUCCESS, _, data)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS, _, info))
     return true
 end
 
+--- 根据请求提供的策略数据，删除对应的分流策略
+--- 关键的policyid参数和policygroupid参数
+--- @return true or false
 _M.del = function(option)
     local db = option.db
 
@@ -251,18 +239,15 @@ _M.del = function(option)
     end
 
     local pfunc = function()
-        local policyGroupMod = policyGroupModule:new(db.redis,
-                                        policyGroupLib, policyLib)
+        local policyGroupMod = policyGroupModule:new(db.redis, policyGroupLib, policyLib)
         return policyGroupMod:del(policyGroupId)
     end
     local status, info = xpcall(pfunc, handler)
     if not status then
-        local response = doerror(info)
-        ngx.say(response)
+        ngx.say(doerror(info))
         return false
     end
-    local response = doresp(ERRORINFO.SUCCESS)
-    ngx.say(response)
+    ngx.say(doresp(ERRORINFO.SUCCESS))
     return true
 end
 

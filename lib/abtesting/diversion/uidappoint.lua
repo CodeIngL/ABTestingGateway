@@ -1,32 +1,36 @@
 local modulename = "abtestingDiversionUidappoint"
-
+--[[
+    基于uid的appoint的分流
+]]--
 local _M    = {}
 local mt    = { __index = _M }
 _M._VERSION = "0.0.1"
 
 local ERRORINFO	= require('abtesting.error.errcode').info
 
-local k_uid     = 'uid'
 local k_uidset  = 'uidset'
 local k_upstream= 'upstream'
 
+--- 构造对象
+--- @param	database 数据库对象
+--- @param policyLib 键前缀
 _M.new = function(self, database, policyLib)
     if not database then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable redis db'}
-    end if not policyLib then
+    end
+    if not policyLib then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable policy lib'}
     end
     
-    self.database = database
+    self.database = database --数据库对象
     self.policyLib = policyLib
     return setmetatable(self, mt)
 end
 
-local isNULL = function(v)
-    return v and v ~= ngx.null
-end
-
---	policy is in format as {{upstream = '192.132.23.125', uidset ={ 214214, 23421,12421} }, {}}
+--- 校验数据policy是否是一个符合的格式
+--- @param	policy  格式:{{upstream = '192.132.23.125', uidset ={ 214214, 23421,12421} }, {}}
+--- @return true or false
+--- @deprecated client端不再需要校验，管理端和client分开
 _M.check = function(self, policy)
     for _, v in pairs(policy) do
         local uidset    = v[k_uidset]

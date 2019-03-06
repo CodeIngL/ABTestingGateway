@@ -1,5 +1,7 @@
 local modulename = "abtestingDiversionUidsuffix"
-
+--[[
+    基于uid后缀的分流
+]]--
 local _M    = {}
 local mt    = { __index = _M }
 _M._VERSION = "0.0.1"
@@ -9,34 +11,37 @@ local ERRORINFO	= require('abtesting.error.errcode').info
 local k_suffix      = 'suffix'
 local k_upstream    = 'upstream'
 
+--- 构造对象
+--- @param	database 数据库对象
+--- @param policyLib 键前缀
 _M.new = function(self, database, policyLib)
     if not database then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable redis db'}
-    end if not policyLib then
+    end
+    if not policyLib then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable policy lib'}
     end
 
-    self.database = database
+    self.database = database --数据库对象
     self.policyLib = policyLib
     return setmetatable(self, mt)
 end
 
---	policy is in format as {{suffix = '4', upstream = '192.132.23.125'}}
+--- 校验数据policy是否是一个符合的格式
+--- @param	policy  格式:{{suffix = '4', upstream = '192.132.23.125'}}
+--- @return true or false
+--- @deprecated client端不再需要校验，管理端和client分开
 _M.check = function(self, policy)
     for _, v in pairs(policy) do
         local suffix    = tonumber(v[k_suffix])
         local upstream  = v[k_upstream]
 
         if not suffix or not upstream then
-            local info = ERRORINFO.POLICY_INVALID_ERROR 
-            local desc = ' need '..k_suffix..' and '..k_upstream
-            return {false, info, desc}
+            return {false, ERRORINFO.POLICY_INVALID_ERROR, ' need '..k_suffix..' and '..k_upstream}
         end
 
         if suffix < 0 or suffix > 9 then
-            local info = ERRORINFO.POLICY_INVALID_ERROR 
-            local desc = 'suffix is not between [0 and 10]'
-            return {false, info, desc}
+            return {false, ERRORINFO.POLICY_INVALID_ERROR, 'suffix is not between [0 and 10]'}
         end
     end
 

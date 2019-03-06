@@ -1,6 +1,6 @@
 ---
--- @classmod abtesting.adapter.policy
--- @release 0.0.1
+--- @classmod abtesting.adapter.policy
+--- @release 0.0.1
 local modulename = "abtestingAdapterPolicy"
 
 local _M = { _VERSION = "0.0.1" }
@@ -10,11 +10,13 @@ local ERRORINFO = require('abtesting.error.errcode').info
 local fields    = require('abtesting.utils.init').fields
 
 local separator = ':'
+
 ---
--- policyIO new function
--- @param database opened redis.
--- @param baseLibrary a library(prefix of redis key) of policies.
--- @return runtimeInfoIO object
+---  策略对象，向下构建对不同策略的封装
+--- policyIO new function
+--- @param database opened redis.
+--- @param baseLibrary a library(prefix of redis key) of policies.
+--- @return runtimeInfoIO object
 _M.new = function(self, database, baseLibrary)
     if not database then
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable redis db'}
@@ -23,9 +25,9 @@ _M.new = function(self, database, baseLibrary)
         error{ERRORINFO.PARAMETER_NONE, 'need avaliable policy baselib'}
     end
     
-    self.database     = database
-    self.baseLibrary  = baseLibrary
-    self.idCountKey = table.concat({baseLibrary, fields.idCount}, separator)
+    self.database     = database -- 数据库对象
+    self.baseLibrary  = baseLibrary -- 键前缀 ab:policies
+    self.idCountKey = table.concat({baseLibrary, fields.idCount}, separator) --id索引键 ab:policies:idCount
     
     local ok, err = database:exists(self.idCountKey)
     if not ok then error{ERRORINFO.REDIS_ERROR,  err} end
@@ -38,11 +40,12 @@ _M.new = function(self, database, baseLibrary)
 end
 
 ---
--- get id for current policy
--- @return the id
+--- get id for current policy
+--- 获取当前策略的ID，通过对redis键值加获得下一个seq
+--- @return the id
 _M.getIdCount = function(self)
     local database = self.database
-    local key = self.idCountKey
+    local key = self.idCountKey --id索引键 ab:policies:idCount
     local idCount, err = database:incr(key)
     if not idCount then error{ERRORINFO.REDIS_ERROR, err} end
     
@@ -50,65 +53,65 @@ _M.getIdCount = function(self)
 end
 
 ---
--- private function, set diversion type
--- @param id identify a policy
--- @param divtype diversion type (ipange/uid/...)
--- @return allways returned SUCCESS
+--- private function, set diversion type
+--- @param id identify a policy
+--- @param divtype diversion type (ipange/uid/...)
+--- @return allways returned SUCCESS
 _M._setDivtype = function(self, id, divtype)
     local database = self.database
-    local key = table.concat({self.baseLibrary, id, fields.divtype}, separator)
+    local key = table.concat({self.baseLibrary, id, fields.divtype}, separator) --前缀：ab:policies:${id}:divtype
     local ok, err = database:set(key, divtype)
     if not ok then error{ERRORINFO.REDIS_ERROR, err} end
 end
 
 ---
--- private function, set diversion data
--- @param id identify a policy
--- @param divdata diversion data
--- @param modulename module name of diversion data (decision by diversion type)
--- @return allways returned SUCCESS
+--- private function, set diversion data
+--- @param id identify a policy
+--- @param divdata diversion data
+--- @param modulename module name of diversion data (decision by diversion type)
+--- @return allways returned SUCCESS
 _M._setDivdata = function(self, id, divdata, modulename)
     local divModule = require(modulename)
-    local database = self.database
-    local key = table.concat({self.baseLibrary, id, fields.divdata}, separator)
-    
-    divModule:new(database, key):set(divdata)
+    local key = table.concat({self.baseLibrary, id, fields.divdata}, separator) --前缀：ab:policies:${id}:divdata
+    divModule:new(self.database, key):set(divdata)
 end
 
 ---
--- addtion a policy to specified redis lib
--- @param policy policy of addtion
--- @return allways returned SUCCESS
+--- addtion a policy to specified redis lib
+--- 为指定的redis lib添加策略
+--- first: 获得seq，seq的key为
+--- next: 向redis中写入key为ab:policies:${id}:divtype，value为${policy.divtype}
+--- last: 使用${divModulename},构建出对于的分类模块，调用模块进行处理相关的数据key为ab:policies:${id}:divdata，value为${policy.divdata}的数据
+--- @param policy policy of addtion
+--- @return allways returned SUCCESS
 _M.set = function(self, policy)
     local id = self:getIdCount()
-    local database = self.database
-    local divModulename = table.concat({'abtesting', 'diversion', policy.divtype}, '.')
-    
+    local divModulename = table.concat({'abtesting.diversion', policy.divtype}, '.') --模块名：abtesting.diversion.${divtype}
+
     self:_setDivtype(id, policy.divtype)
     self:_setDivdata(id, policy.divdata, divModulename)
     
     return id
 end
 
+---
+--- 根据策略数据定位相应的策略模块进行检查
+--- @param policy 策略数据
+--- @return allways returned SUCCESS
 _M.check = function(self, policy)
-    local divModulename = table.concat({'abtesting', 'diversion', policy.divtype}, '.')
+    local divModulename = table.concat({'abtesting.diversion', policy.divtype}, '.') --模块名：abtesting.diversion.${divtype}
     local divModule = require(divModulename)
-    local database = self.database
-    
-    return divModule:new(database, ''):check(policy.divdata)
+    return divModule:new(self.database, ''):check(policy.divdata)
 end
 
 ---
--- delete a policy from specified redis lib
--- @param id the policy identify
--- @return allways returned SUCCESS
+--- delete a policy from specified redis lib
+--- @param id the policy identify
+--- @return allways returned SUCCESS
 _M.del = function(self, id)
     local database      = self.database
-    local baseLibrary   = self.baseLibrary
 
-    local policyLib = baseLibrary .. ':' .. id .. ':'
-
-    local keys, err = database:keys(policyLib..'*')
+    local keys, err = database:keys(self.baseLibrary..':'..id..':*')
     if not keys then
         error{ERRORINFO.REDIS_ERROR, err}
     end
@@ -137,10 +140,8 @@ _M.get = function(self, id)
         return policy
     end
 
-    local divModulename = table.concat({'abtesting', 'diversion', divtype}, '.')
-    local divModule     = require(divModulename):new(database, divDataKey)
-
-    local divdata       = divModule:get()
+    local divModulename = table.concat({'abtesting.diversion', divtype}, '.') --模块名：abtesting.diversion.${divtype}
+    local divdata       = require(divModulename):new(database, divDataKey):get()
     policy.divtype      = divtype
     policy.divdata      = divdata
     return policy
