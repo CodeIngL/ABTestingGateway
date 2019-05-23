@@ -1,0 +1,12 @@
+---
+--- 管理端，提供了对nginx灰度分布的策略设定
+---
+---
+--- ab_action web管理端
+---
+--- policy 设置策略
+---
+--- policygroup 设置策略组
+---
+--- runtime 运行时对应的hostName对应的策略相关内容
+---
